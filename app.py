@@ -403,75 +403,65 @@ if "Dashboard" in page:
     bot_col1, bot_col2 = st.columns(2)
 
     with bot_col1:
-        st.markdown('<div class="sec-header">🔴 Overdue Work Orders</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header">🔴 Overdue / Open Work Orders</div>', unsafe_allow_html=True)
         conn2 = get_conn()
         overdue_rows = [dict(r) for r in conn2.execute("""
             SELECT work_order, customer_name, tech_name, labour_time, created_at, status
             FROM tbl_work_orders
-            WHERE status = 'Open'
+            WHERE status IN ('Open', 'In Progress')
             ORDER BY created_at ASC
-            LIMIT 8
+            LIMIT 10
         """).fetchall()]
         conn2.close()
 
         if overdue_rows:
+            from datetime import datetime as _dt2
+            ov_table = []
             for r in overdue_rows:
-                days_open = 0
                 try:
-                    from datetime import datetime
-                    created = datetime.strptime(r["created_at"], "%Y-%m-%d")
-                    days_open = (datetime.today() - created).days
-                except:
-                    days_open = "?"
-
-                urgency_color = "#DC2626" if isinstance(days_open, int) and days_open > 30 else "#FF8C42"
-                st.markdown(f"""
-                <div style='background:#fff;border:1px solid #E2E8F0;border-left:4px solid {urgency_color};
-                            border-radius:8px;padding:10px 14px;margin-bottom:8px;'>
-                    <div style='display:flex;justify-content:space-between;align-items:center'>
-                        <span style='font-weight:700;color:#0D1F2D;font-size:13px'>{r["work_order"]}</span>
-                        <span style='background:#FEE2E2;color:#991B1B;font-size:10px;font-weight:700;
-                                     padding:2px 8px;border-radius:4px'>{days_open} days open</span>
-                    </div>
-                    <div style='color:#64748B;font-size:11px;margin-top:4px'>
-                        👤 {r["customer_name"]} &nbsp;|&nbsp; 🔧 {r.get("tech_name") or "Unassigned"} &nbsp;|&nbsp; ⏱ {r["labour_time"]}h
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    days_open = (_dt2.today() - _dt2.strptime(r["created_at"], "%Y-%m-%d")).days
+                except Exception:
+                    days_open = 0
+                ov_table.append({
+                    "Job #":      r["work_order"],
+                    "Customer":   r["customer_name"],
+                    "Tech":       r.get("tech_name") or "Unassigned",
+                    "Labour":     f"{r['labour_time']}h",
+                    "Days Open":  days_open,
+                    "Status":     r["status"],
+                })
+            st.dataframe(pd.DataFrame(ov_table), use_container_width=True, hide_index=True,
+                column_config={"Days Open": st.column_config.NumberColumn("Days Open", format="%d days")})
+            critical = sum(1 for r in ov_table if isinstance(r["Days Open"], int) and r["Days Open"] > 30)
+            st.caption(f"**{len(ov_table)}** open jobs · **{critical}** critical (>30 days)")
         else:
             st.success("✅ No overdue work orders!")
 
     with bot_col2:
-        st.markdown('<div class="sec-header">📅 Recent Job Service History</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec-header">📅 Recent Job History</div>', unsafe_allow_html=True)
         conn3 = get_conn()
         history_rows = [dict(r) for r in conn3.execute("""
             SELECT work_order, customer_name, tech_name, labour_time,
-                   completion_date, notes, status
+                   completion_date, notes
             FROM tbl_work_orders
             WHERE status = 'Completed'
             ORDER BY completion_date DESC
-            LIMIT 8
+            LIMIT 10
         """).fetchall()]
         conn3.close()
 
         if history_rows:
-            for r in history_rows:
-                st.markdown(f"""
-                <div style='background:#fff;border:1px solid #E2E8F0;border-left:4px solid #7DC142;
-                            border-radius:8px;padding:10px 14px;margin-bottom:8px;'>
-                    <div style='display:flex;justify-content:space-between;align-items:center'>
-                        <span style='font-weight:700;color:#0D1F2D;font-size:13px'>{r["work_order"]}</span>
-                        <span style='background:#F0FDF4;color:#166534;font-size:10px;font-weight:700;
-                                     padding:2px 8px;border-radius:4px'>✓ Completed</span>
-                    </div>
-                    <div style='color:#64748B;font-size:11px;margin-top:4px'>
-                        👤 {r["customer_name"]} &nbsp;|&nbsp; 🔧 {r.get("tech_name") or "—"} &nbsp;|&nbsp; ⏱ {r["labour_time"]}h
-                    </div>
-                    <div style='color:#94A3B8;font-size:10px;margin-top:3px'>
-                        📆 Completed: {r.get("completion_date") or "—"} &nbsp;|&nbsp; {r.get("notes","")[:60]}{"..." if len(r.get("notes","")) > 60 else ""}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+            hist_table = [{
+                "Job #":      r["work_order"],
+                "Customer":   r["customer_name"],
+                "Tech":       r.get("tech_name") or "—",
+                "Labour":     f"{r['labour_time']}h",
+                "Completed":  r.get("completion_date") or "—",
+                "Notes":      (r.get("notes") or "")[:35],
+            } for r in history_rows]
+            st.dataframe(pd.DataFrame(hist_table), use_container_width=True, hide_index=True)
+            total_hrs = sum(r["labour_time"] for r in history_rows)
+            st.caption(f"**{len(hist_table)}** recent jobs shown · **{total_hrs:.1f}h** total labour")
         else:
             st.info("No completed jobs yet.")
 
@@ -562,6 +552,108 @@ elif "Work Orders" in page:
                     st.write(f"**Notes:** {r['notes']}")
     else:
         st.info("No work orders match your filter.")
+
+    # ── Bottom tables: Overdue Jobs + Job History ─────────────────────────────
+    st.markdown("---")
+    bot1, bot2 = st.columns(2)
+
+    with bot1:
+        st.markdown('<div class="sec-header">🔴 Overdue / Open Jobs</div>', unsafe_allow_html=True)
+        conn_ov = get_conn()
+        overdue_data = [dict(r) for r in conn_ov.execute("""
+            SELECT work_order, customer_name, tech_name,
+                   travel_time, labour_time, created_at, notes
+            FROM tbl_work_orders
+            WHERE status IN ('Open', 'In Progress')
+            ORDER BY created_at ASC
+        """).fetchall()]
+        conn_ov.close()
+
+        if overdue_data:
+            from datetime import datetime as _dt
+            ov_rows = []
+            for r in overdue_data:
+                try:
+                    days_open = (_dt.today() - _dt.strptime(r["created_at"], "%Y-%m-%d")).days
+                except Exception:
+                    days_open = 0
+                urgency = "🔴 Critical" if days_open > 30 else ("🟠 High" if days_open > 14 else "🟡 Normal")
+                ov_rows.append({
+                    "Job #":        r["work_order"],
+                    "Customer":     r["customer_name"],
+                    "Technician":   r.get("tech_name") or "Unassigned",
+                    "Labour (h)":   r["labour_time"],
+                    "Days Open":    days_open,
+                    "Urgency":      urgency,
+                    "Notes":        (r.get("notes") or "")[:40],
+                })
+            ov_df = pd.DataFrame(ov_rows)
+            st.dataframe(
+                ov_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Days Open": st.column_config.NumberColumn("Days Open", format="%d days"),
+                    "Labour (h)": st.column_config.NumberColumn("Labour (h)", format="%.1f h"),
+                },
+            )
+            total_overdue = len(ov_rows)
+            critical = sum(1 for r in ov_rows if "Critical" in r["Urgency"])
+            st.caption(f"**{total_overdue}** open jobs · **{critical}** critical (>30 days)")
+        else:
+            st.success("✅ No open or overdue jobs!")
+
+    with bot2:
+        st.markdown('<div class="sec-header">📅 Job History — Completed Jobs</div>', unsafe_allow_html=True)
+        conn_hi = get_conn()
+        history_data = [dict(r) for r in conn_hi.execute("""
+            SELECT work_order, customer_name, tech_name,
+                   travel_time, labour_time, completion_date, notes
+            FROM tbl_work_orders
+            WHERE status = 'Completed'
+            ORDER BY completion_date DESC
+            LIMIT 50
+        """).fetchall()]
+        conn_hi.close()
+
+        if history_data:
+            # Search/filter bar for history
+            hist_search = st.text_input(
+                "🔍 Filter history", placeholder="Customer or job #…",
+                key="hist_search", label_visibility="collapsed"
+            )
+            if hist_search:
+                history_data = [
+                    r for r in history_data
+                    if hist_search.lower() in r["customer_name"].lower()
+                    or hist_search.lower() in r["work_order"].lower()
+                ]
+
+            hist_rows = [{
+                "Job #":           r["work_order"],
+                "Customer":        r["customer_name"],
+                "Technician":      r.get("tech_name") or "—",
+                "Travel (h)":      r["travel_time"],
+                "Labour (h)":      r["labour_time"],
+                "Completed":       r.get("completion_date") or "—",
+                "Notes":           (r.get("notes") or "")[:40],
+            } for r in history_data]
+
+            hist_df = pd.DataFrame(hist_rows)
+            st.dataframe(
+                hist_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Travel (h)":  st.column_config.NumberColumn("Travel (h)",  format="%.1f h"),
+                    "Labour (h)":  st.column_config.NumberColumn("Labour (h)",  format="%.1f h"),
+                    "Completed":   st.column_config.TextColumn("Completed"),
+                },
+            )
+            total_hrs = sum(r["Labour (h)"] for r in hist_rows)
+            st.caption(f"**{len(hist_rows)}** completed jobs · **{total_hrs:.1f}h** total labour")
+        else:
+            st.info("No completed jobs yet.")
 
 
 # ════════════════════════════════════════════════════════════════════
