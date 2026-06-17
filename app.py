@@ -34,7 +34,9 @@ st.markdown("""
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
 [data-testid="stSidebar"] { background: #0A1929 !important; }
-[data-testid="stSidebar"] * { color: #99AABB !important; }
+[data-testid="stSidebar"] .stRadio label p { color: #99AABB !important; }
+[data-testid="stSidebar"] .stMarkdown p { color: #99AABB !important; }
+[data-testid="stSidebarNav"] { display: none; }
 [data-testid="stSidebar"] .stRadio label { color: #99AABB !important; font-size: 14px; }
 
 div[data-testid="metric-container"] {
